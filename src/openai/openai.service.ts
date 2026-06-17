@@ -14,6 +14,7 @@ import type {
 import { ToolCallService } from '../tool-call/tool-call.service';
 
 const MAX_TOOL_ITERATIONS = 5;
+const EMBEDDING_MODEL = 'text-embedding-3-small';
 
 @Injectable()
 export class OpenaiService {
@@ -27,6 +28,34 @@ export class OpenaiService {
     this.client = new OpenAI({
       apiKey: this.configService.getOrThrow<string>('OPENAI_API_KEY'),
     });
+  }
+
+  async createEmbedding(text: string): Promise<number[]> {
+    const [embedding] = await this.createEmbeddings([text]);
+    return embedding;
+  }
+
+  async createEmbeddings(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) {
+      return [];
+    }
+
+    try {
+      const response = await this.client.embeddings.create({
+        model: EMBEDDING_MODEL,
+        input: texts,
+      });
+
+      return response.data
+        .sort((a, b) => a.index - b.index)
+        .map((item) => item.embedding);
+    } catch (error) {
+      throw new InternalServerErrorException(
+        error instanceof Error
+          ? error.message
+          : 'OpenAI embedding request failed',
+      );
+    }
   }
 
   async createResponse(params: {

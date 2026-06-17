@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AssistantModule } from '../assistant/assistant.module';
+import { EmbeddingsModule } from '../embeddings/embeddings.module';
 import { OpenaiModule } from '../openai/openai.module';
 import { Message, MessageSchema } from '../schemas/message.entity';
 import {
@@ -18,6 +19,7 @@ import { UserAssistantService } from './user-assistant.service';
       { name: Message.name, schema: MessageSchema },
     ]),
     AssistantModule,
+    EmbeddingsModule,
     OpenaiModule,
   ],
   controllers: [ChatController],
