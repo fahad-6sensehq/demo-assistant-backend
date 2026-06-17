@@ -12,7 +12,11 @@ export class AdminService {
   ) {}
 
   async listUsers() {
-    const users = await this.usersService.findAll();
+    const isAdmin = false;
+    const users = (await this.usersService.findAll()).filter(
+      (user) => user.isAdmin === isAdmin,
+    );
+
     return users.map((user) => ({
       id: user._id.toString(),
       name: user.name,

@@ -2,14 +2,29 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AssistantService } from '../assistant/assistant.service';
+import { EmbeddingsService } from '../embeddings/embeddings.service';
 import { OpenaiService } from '../openai/openai.service';
-import { Message, MessageDocument } from '../schemas/message.entity';
+import {
+  Message,
+  MessageDocument,
+  MessageSource,
+} from '../schemas/message.entity';
+import { buildRagInput } from './rag-citation.prompt';
 import { UserAssistantService } from './user-assistant.service';
+
+export interface MessageSourceResponse {
+  index: number;
+  fileId: string;
+  fileName: string;
+  excerpt: string;
+  score: number;
+}
 
 export interface ChatMessageResponse {
   id: string;
   role: string;
   content: string;
+  sources?: MessageSourceResponse[];
   createdAt: Date;
 }
 
@@ -20,6 +35,7 @@ export interface ChatHistoryResponse {
 
 export interface SendMessageResponse {
   reply: ChatMessageResponse;
+  sources: MessageSourceResponse[];
   messages: ChatMessageResponse[];
 }
 
@@ -30,6 +46,7 @@ export class ChatService {
     private readonly userAssistantService: UserAssistantService,
     private readonly assistantService: AssistantService,
     private readonly openaiService: OpenaiService,
+    private readonly embeddingsService: EmbeddingsService,
   ) {}
 
   async getHistory(userId: string): Promise<ChatHistoryResponse> {
@@ -69,10 +86,17 @@ export class ChatService {
       updatedAt: new Date(),
     });
 
+    const retrieval = await this.embeddingsService.retrieve(userId, content);
+    console.log('retrieval', JSON.stringify(retrieval, null, 2));
+
+    const input = retrieval.context
+      ? buildRagInput(retrieval.context, content)
+      : content;
+
     const aiResponse = await this.openaiService.createResponse({
       model: assistant.aiModel,
       instructions: assistant.instructions,
-      input: content,
+      input,
       previousResponseId: conversation.lastResponseId,
     });
 
@@ -81,6 +105,7 @@ export class ChatService {
       role: 'assistant',
       content: aiResponse.text,
       openaiResponseId: aiResponse.id,
+      sources: retrieval.sources,
       updatedAt: new Date(),
     });
 
@@ -94,8 +119,11 @@ export class ChatService {
       .sort({ createdAt: 1 })
       .exec();
 
+    const reply = this.toMessageResponse(assistantMessage);
+
     return {
-      reply: this.toMessageResponse(assistantMessage),
+      reply,
+      sources: reply.sources ?? [],
       messages: messages.map((message) => this.toMessageResponse(message)),
     };
   }
@@ -105,11 +133,29 @@ export class ChatService {
   }
 
   private toMessageResponse(message: MessageDocument): ChatMessageResponse {
-    return {
+    const response: ChatMessageResponse = {
       id: message._id.toString(),
       role: message.role,
       content: message.content,
       createdAt: message.createdAt,
+    };
+
+    if (message.role === 'assistant' && message.sources?.length > 0) {
+      response.sources = message.sources.map((source) =>
+        this.toSourceResponse(source),
+      );
+    }
+
+    return response;
+  }
+
+  private toSourceResponse(source: MessageSource): MessageSourceResponse {
+    return {
+      index: source.index,
+      fileId: source.fileId,
+      fileName: source.fileName,
+      excerpt: source.excerpt,
+      score: source.score,
     };
   }
 }
